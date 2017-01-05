@@ -13,6 +13,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	. "github.com/Xeralux/go-audit/client"
+	"github.com/Xeralux/go-audit/logger"
+	. "github.com/Xeralux/go-audit/marshaller"
+	. "github.com/Xeralux/go-audit/writer"
 )
 
 var l = log.New(os.Stdout, "", 0)
@@ -53,7 +57,7 @@ func setRules(config *viper.Viper, e executor) error {
 		return errors.New(fmt.Sprintf("Failed to flush existing audit rules. Error: %s", err))
 	}
 
-	l.Println("Flushed existing audit rules")
+	logger.Info("Flushed existing audit rules")
 
 	// Add ours in
 	if rules := config.GetStringSlice("rules"); len(rules) != 0 {
@@ -67,7 +71,7 @@ func setRules(config *viper.Viper, e executor) error {
 				return errors.New(fmt.Sprintf("Failed to add rule #%d. Error: %s", i+1, err))
 			}
 
-			l.Printf("Added audit rule #%d\n", i+1)
+			logger.Info("Added audit rule #%d", i+1)
 		}
 	} else {
 		return errors.New("No audit rules found.")
@@ -226,7 +230,8 @@ func createFilters(config *viper.Viper) []AuditFilter {
 	for i, f := range ft {
 		f2, ok := f.(map[interface{}]interface{})
 		if !ok {
-			el.Fatal("Could not parse filter ", i+1, f)
+			logger.Crit("Could not parse filter %d, %v", i+1, f)
+			panic("Could not parse filter")
 		}
 
 		af := AuditFilter{}
@@ -236,43 +241,50 @@ func createFilters(config *viper.Viper) []AuditFilter {
 				if ev, ok := v.(string); ok {
 					fv, err := strconv.ParseUint(ev, 10, 64)
 					if err != nil {
-						el.Fatal("`message_type` in filter ", i+1, " could not be parsed ", v, " ", err)
+						logger.Crit("`message_type` in filter %d could not be parsed %v (%v) ", i+1, v, err)
+						panic(err)
 					}
-					af.messageType = uint16(fv)
+					af.MessageType = uint16(fv)
 
 				} else if ev, ok := v.(int); ok {
 					if !ok {
-						el.Fatal("`message_type` in filter ", i+1, " could not be parsed ", v)
+						logger.Crit("`message_type` in filter %d could not be parsed %v", i+1,  v)
+						panic("`message_type` in filter could not be parsed")
 					}
-					af.messageType = uint16(ev)
+					af.MessageType = uint16(ev)
 
 				} else {
-					el.Fatal("`message_type` in filter ", i+1, " could not be parsed ", v)
+					logger.Crit("`message_type` in filter %d could not be parsed %v", i+1,  v)
+					panic("`message_type` in filter could not be parsed")
 				}
 
 			case "regex":
 				re, ok := v.(string)
 				if !ok {
-					el.Fatal("`regex` in filter ", i+1, " could not be parsed ", v)
+					logger.Crit("`regex` in filter %d could not be parsed %v", i+1,  v)
+					panic("`regex` in filter could not be parsed")
 				}
 
-				if af.regex, err = regexp.Compile(re); err != nil {
-					el.Fatal("`regex` in filter ", i+1, " could not be parsed ", v, " ", err)
+				if af.Regex, err = regexp.Compile(re); err != nil {
+					logger.Crit("`regex` in filter %d could not be parsed %v", i+1,  v)
+					panic(err)
 				}
 
 			case "syscall":
-				if af.syscall, ok = v.(string); ok {
+				if af.Syscall, ok = v.(string); ok {
 					// All is good
 				} else if ev, ok := v.(int); ok {
-					af.syscall = strconv.Itoa(ev)
+					af.Syscall = strconv.Itoa(ev)
 				} else {
-					el.Fatal("`syscall` in filter ", i+1, " could not be parsed ", v)
+					logger.Crit("`syscall` in filter %d could not be parsed %v", i+1,  v)
+					panic("`syscall` in filter could not be parsed")
 				}
 			}
 		}
 
 		filters = append(filters, af)
-		l.Printf("Ignoring  syscall `%v` containing message type `%v` matching string `%s`\n", af.syscall, af.messageType, af.regex.String())
+		logger.Info("Ignoring  syscall `%v` containing message type `%v` matching string `%s`\n",
+			af.Syscall, af.MessageType, af.Regex.String())
 	}
 
 	return filters
@@ -283,25 +295,30 @@ func main() {
 
 	flag.Parse()
 
+	logger.AuditLoggerNew(l, el, nil)
+
 	if *configFile == "" {
-		el.Println("A config file must be provided")
+		logger.Err("A config file must be provided")
 		flag.Usage()
 		os.Exit(1)
 	}
 
 	config, err := loadConfig(*configFile)
 	if err != nil {
-		el.Fatal(err)
+		logger.Crit("%v", err)
+		panic(err)
 	}
 
 	// output needs to be created before anything that write to stdout
 	writer, err := createOutput(config)
 	if err != nil {
-		el.Fatal(err)
+		logger.Crit("%v", err)
+		panic(err)
 	}
 
 	if err := setRules(config, lExec); err != nil {
-		el.Fatal(err)
+		logger.Crit("%v", err)
+		panic(err)
 	}
 
 	nlClient := NewNetlinkClient(config.GetInt("socket_buffer.receive"))
@@ -313,13 +330,13 @@ func main() {
 		createFilters(config),
 	)
 
-	l.Println("Started processing events")
+	logger.Info("Started processing events")
 
 	//Main loop. Get data from netlink and send it to the json lib for processing
 	for {
 		msg, err := nlClient.Receive()
 		if err != nil {
-			el.Printf("Error during message receive: %+v\n", err)
+			logger.Err("Error during message receive: %+v", err)
 			continue
 		}
 

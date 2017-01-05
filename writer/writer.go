@@ -1,9 +1,11 @@
-package main
+package writer
 
 import (
 	"encoding/json"
 	"io"
 	"time"
+	"github.com/Xeralux/go-audit/logger"
+	. "github.com/Xeralux/go-audit/parser"
 )
 
 type AuditWriter struct {
@@ -30,7 +32,7 @@ func (a *AuditWriter) Write(msg *AuditMessageGroup) (err error) {
 		if i != a.attempts {
 			// We have to reset the encoder because write errors are kept internally and can not be retried
 			a.e = json.NewEncoder(a.w)
-			el.Println("Failed to write message, retrying in 1 second. Error:", err)
+			logger.Err("Failed to write message, retrying in 1 second. Error: %v", err)
 			time.Sleep(time.Second * 1)
 		}
 	}

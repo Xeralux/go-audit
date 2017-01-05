@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"github.com/Xeralux/go-audit/logger"
 )
 
 var Endianness = binary.LittleEndian
@@ -43,7 +44,8 @@ type NetlinkClient struct {
 func NewNetlinkClient(recvSize int) *NetlinkClient {
 	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW, syscall.NETLINK_AUDIT)
 	if err != nil {
-		el.Fatalln("Could not create a socket:", err)
+		logger.Err("Could not create a socket: %v", err)
+		panic(err)
 	}
 
 	n := &NetlinkClient{
@@ -54,7 +56,8 @@ func NewNetlinkClient(recvSize int) *NetlinkClient {
 
 	if err = syscall.Bind(fd, n.address); err != nil {
 		syscall.Close(fd)
-		el.Fatalln("Could not bind to netlink socket:", err)
+		logger.Err("Could not bind to netlink socket: %v", err)
+		panic(err)
 	}
 
 	// Set the buffer size if we were asked
@@ -64,7 +67,7 @@ func NewNetlinkClient(recvSize int) *NetlinkClient {
 
 	// Print the current receive buffer size
 	if v, err := syscall.GetsockoptInt(n.fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF); err == nil {
-		l.Println("Socket receive buffer size:", v)
+		logger.Info("Socket receive buffer size: %d", v)
 	}
 
 	go func() {
@@ -143,6 +146,6 @@ func (n *NetlinkClient) KeepConnection() {
 
 	err := n.Send(packet, payload)
 	if err != nil {
-		el.Println("Error occurred while trying to keep the connection:", err)
+		logger.Err("Error occurred while trying to keep the connection: %v", err)
 	}
 }

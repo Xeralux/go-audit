@@ -1,10 +1,12 @@
-package main
+package marshaller
 
 import (
-	"os"
 	"regexp"
 	"syscall"
 	"time"
+	"github.com/Xeralux/go-audit/logger"
+	. "github.com/Xeralux/go-audit/parser"
+	. "github.com/Xeralux/go-audit/writer"
 )
 
 const (
@@ -24,12 +26,13 @@ type AuditMarshaller struct {
 	maxOutOfOrder int
 	attempts      int
 	filters       map[string]map[uint16][]*regexp.Regexp // { syscall: { mtype: [regexp, ...] } }
+
 }
 
 type AuditFilter struct {
-	messageType uint16
-	regex       *regexp.Regexp
-	syscall     string
+	MessageType uint16
+	Regex       *regexp.Regexp
+	Syscall     string
 }
 
 // Create a new marshaller
@@ -45,15 +48,15 @@ func NewAuditMarshaller(w *AuditWriter, trackMessages, logOOO bool, maxOOO int, 
 	}
 
 	for _, filter := range filters {
-		if _, ok := am.filters[filter.syscall]; !ok {
-			am.filters[filter.syscall] = make(map[uint16][]*regexp.Regexp)
+		if _, ok := am.filters[filter.Syscall]; !ok {
+			am.filters[filter.Syscall] = make(map[uint16][]*regexp.Regexp)
 		}
 
-		if _, ok := am.filters[filter.syscall][filter.messageType]; !ok {
-			am.filters[filter.syscall][filter.messageType] = []*regexp.Regexp{}
+		if _, ok := am.filters[filter.Syscall][filter.MessageType]; !ok {
+			am.filters[filter.Syscall][filter.MessageType] = []*regexp.Regexp{}
 		}
 
-		am.filters[filter.syscall][filter.messageType] = append(am.filters[filter.syscall][filter.messageType], filter.regex)
+		am.filters[filter.Syscall][filter.MessageType] = append(am.filters[filter.Syscall][filter.MessageType], filter.Regex)
 	}
 
 	return &am
@@ -121,8 +124,8 @@ func (a *AuditMarshaller) completeMessage(seq int) {
 	}
 
 	if err := a.writer.Write(msg); err != nil {
-		el.Println("Failed to write message. Error:", err)
-		os.Exit(1)
+		logger.Err("Failed to write message. Error: %v", err)
+		panic(err)
 	}
 
 	delete(a.msgs, seq)
@@ -164,11 +167,11 @@ func (a *AuditMarshaller) detectMissing(seq int) {
 			}
 
 			if a.logOutOfOrder {
-				el.Println("Got sequence", missedSeq, "after", lag, "messages. Worst lag so far", a.worstLag, "messages")
+				logger.Err("Got sequence %d after %d messages.  Worst lag so far %d messages", missedSeq, lag, a.worstLag)
 			}
 			delete(a.missed, missedSeq)
 		} else if seq-missedSeq > a.maxOutOfOrder {
-			el.Printf("Likely missed sequence %d, current %d, worst message delay %d\n", missedSeq, seq, a.worstLag)
+			logger.Err("Likely missed sequence %d, current %d, worst message delay %d\n", missedSeq, seq, a.worstLag)
 			delete(a.missed, missedSeq)
 		}
 	}
